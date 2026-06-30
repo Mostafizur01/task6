@@ -10,11 +10,11 @@ import history from './routes/history.js';
 const app = express();
 const server = createServer(app);
 const port = process.env.PORT || 3000;
-const allowedOrigins = [process.env.CLIENT_ORIGIN, 'http://localhost:5173', 'http://127.0.0.1:5173'].filter(Boolean);
+// const allowedOrigins = [process.env.CLIENT_ORIGIN, 'http://localhost:5173', 'http://127.0.0.1:5173'].filter(Boolean);
 
 const io = new Server(server, {
     cors: {
-        origin: allowedOrigins,
+        origin: 'http://localhost:5173',
         methods: ['GET', 'POST'],
         credentials: true,
     },
