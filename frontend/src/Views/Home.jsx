@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Header from './Header';
 import History from './History';
 
-const API_BASE_URL = 'http://localhost:4000';
+const API_BASE_URL = 'https://task6-backend-v424.onrender.com';
 
 export default function Home() {
   const navigate = useNavigate();
