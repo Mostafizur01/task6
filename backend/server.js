@@ -10,11 +10,11 @@ import history from './routes/history.js';
 const app = express();
 const server = createServer(app);
 const port = process.env.PORT || 3000;
-const allowedOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173'];
+const allowedOrigins = ['https://task6-qr9f.onrender.com', 'http://localhost:5173', 'http://127.0.0.1:5173'];
 
 const io = new Server(server, {
     cors: {
-        origin: 'http://localhost:5173',
+        origin: 'https://task6-qr9f.onrender.com',
         methods: ['GET', 'POST'],
         credentials: true,
     },

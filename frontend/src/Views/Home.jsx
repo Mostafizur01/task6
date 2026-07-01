@@ -4,7 +4,7 @@ import Header from './Header';
 import History from './History';
 import socket from '../socket';
 
-const API_BASE_URL = 'http://localhost:3000';//'https://task6-backend-v424.onrender.com';
+const API_BASE_URL = 'http://localhost:3000' || 'https://task6-backend-v424.onrender.com';
 
 export default function Home() {
   const navigate = useNavigate();
