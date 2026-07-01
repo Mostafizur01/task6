@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from './Header';
 import History from './History';
+import socket from '../socket';
 
 const API_BASE_URL = 'http://localhost:3000';//'https://task6-backend-v424.onrender.com';
 
@@ -9,6 +10,19 @@ export default function Home() {
   const navigate = useNavigate();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [historyData, setHistoryData] = useState([]);
+
+  useEffect(() => {
+    const handleMatchFound = (data) => {
+      if (data?.room) {
+        navigate(`/game/${data.room}`);
+      }
+    };
+
+    socket.on('match-found', handleMatchFound);
+    return () => {
+      socket.off('match-found', handleMatchFound);
+    };
+  }, [navigate]);
 
   const fetchHistory = async () => {
     try {

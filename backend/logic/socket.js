@@ -1,18 +1,44 @@
+import User from '../models/user.js';
+
 const rooms = {};
 const queue = [];
 
-const getOrCreateRoom = (roomName) => {
-    if (!rooms[roomName]) {
-        rooms[roomName] = {
-            players: [],
-            turn: null,
-            playersReady: [],
-            ships: {},
-            hitCounts: {},
-            started: false,
-            gameOver: false,
-        };
+const saveGameResult = async (data) => {
+    if (!data || typeof data !== 'object') return;
+
+    try {
+        const { roomId, winnerId, loserId, timestamp } = data;
+        const winnerName = data.winnerName || winnerId || 'unknown-winner';
+        const loserName = data.loserName || loserId || 'unknown-loser';
+
+        await User.findOneAndUpdate(
+            { name: winnerName },
+            { $inc: { gamePlay: 1, winNumber: 1 } },
+            { upsert: true, setDefaultsOnInsert: true }
+        );
+
+        await User.findOneAndUpdate(
+            { name: loserName },
+            { $inc: { gamePlay: 1, loseNumber: 1 } },
+            { upsert: true, setDefaultsOnInsert: true }
+        );
+
+        console.log('Saved game result', { roomId, winnerId, loserId, timestamp });
+    } catch (error) {
+        console.error('Failed to save game result', error);
     }
+};
+
+const createRoom = (roomName) => {
+    rooms[roomName] = {
+        players: [],
+        turn: null,
+        playersReady: [],
+        ships: {},
+        hitCounts: {},
+        started: false,
+        gameOver: false,
+    };
     return rooms[roomName];
 };
 
@@ -33,41 +59,6 @@ const removeFromQueue = (socketId) => {
 
 export default (io) => {
     io.on('connection', (socket) => {
-        const joinRoom = (roomName) => {
-            if (!roomName || typeof roomName !== 'string') {
-                socket.emit('error', 'Invalid room name');
-                return;
-            }
-
-            const room = getOrCreateRoom(roomName);
-            const currentRoom = io.sockets.adapter.rooms.get(roomName);
-            const currentSize = currentRoom ? currentRoom.size : 0;
-
-            if (room.gameOver) {
-                socket.emit('error', 'This room has already finished.');
-                return;
-            }
-
-            if (currentSize >= 2 || room.players.includes(socket.id)) {
-                if (room.players.includes(socket.id)) {
-                    socket.emit('joined', { message: 'You already joined this room', room: roomName });
-                } else {
-                    socket.emit('error', 'the room is full');
-                }
-                return;
-            }
-
-            socket.join(roomName);
-            socket.data.roomName = roomName;
-            if (!room.players.includes(socket.id)) {
-                room.players.push(socket.id);
-            }
-            socket.emit('joined', { message: 'you joined room', room: roomName });
-        };
-
-        socket.on('jone_room', joinRoom);
-        socket.on('join_room', joinRoom);
-
         socket.on('randomMatch', () => {
             removeFromQueue(socket.id);
 
@@ -163,10 +154,19 @@ export default (io) => {
 
             if (room.hitCounts[defenderId] >= 5) {
                 room.gameOver = true;
+                const payload = {
+                    roomId: roomName,
+                    winnerId: socket.id,
+                    loserId: defenderId,
+                    timestamp: new Date().toISOString(),
+                };
+
                 io.to(roomName).emit('gameOver', {
                     room: roomName,
                     winnerId: socket.id,
                 });
+
+                void saveGameResult(payload);
                 delete rooms[roomName];
             }
         });
