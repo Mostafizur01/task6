@@ -6,11 +6,29 @@ const getOrCreateRoom = (roomName) => {
         rooms[roomName] = {
             players: [],
             turn: null,
-            count: 0,
             playersReady: [],
+            ships: {},
+            hitCounts: {},
+            started: false,
+            gameOver: false,
         };
     }
     return rooms[roomName];
+};
+
+const generateShips = () => {
+    const positions = new Set();
+    while (positions.size < 5) {
+        positions.add(Math.floor(Math.random() * 100));
+    }
+    return Array.from(positions);
+};
+
+const removeFromQueue = (socketId) => {
+    const index = queue.indexOf(socketId);
+    if (index >= 0) {
+        queue.splice(index, 1);
+    }
 };
 
 export default (io) => {
@@ -25,6 +43,11 @@ export default (io) => {
             const currentRoom = io.sockets.adapter.rooms.get(roomName);
             const currentSize = currentRoom ? currentRoom.size : 0;
 
+            if (room.gameOver) {
+                socket.emit('error', 'This room has already finished.');
+                return;
+            }
+
             if (currentSize >= 2 || room.players.includes(socket.id)) {
                 if (room.players.includes(socket.id)) {
                     socket.emit('joined', { message: 'You already joined this room', room: roomName });
@@ -35,6 +58,7 @@ export default (io) => {
             }
 
             socket.join(roomName);
+            socket.data.roomName = roomName;
             if (!room.players.includes(socket.id)) {
                 room.players.push(socket.id);
             }
@@ -45,7 +69,7 @@ export default (io) => {
         socket.on('join_room', joinRoom);
 
         socket.on('randomMatch', () => {
-            if (queue.includes(socket.id)) return;
+            removeFromQueue(socket.id);
 
             if (queue.length > 0) {
                 const opponentSocketId = queue.shift();
@@ -56,12 +80,17 @@ export default (io) => {
 
                     socket.join(roomName);
                     opponentSocket.join(roomName);
+                    socket.data.roomName = roomName;
+                    opponentSocket.data.roomName = roomName;
 
                     rooms[roomName] = {
                         players: [opponentSocketId, socket.id],
                         turn: null,
-                        count: 0,
                         playersReady: [],
+                        ships: {},
+                        hitCounts: {},
+                        started: false,
+                        gameOver: false,
                     };
 
                     io.to(roomName).emit('match-found', { room: roomName });
@@ -77,40 +106,88 @@ export default (io) => {
 
         socket.on('areYouReady', (roomName) => {
             const room = rooms[roomName];
-            if (!room) return;
+            if (!room || room.gameOver) return;
 
             if (!room.playersReady) room.playersReady = [];
             if (room.playersReady.includes(socket.id)) return;
 
             room.playersReady.push(socket.id);
-            room.count += 1;
 
-            if (room.count === 2) {
+            if (room.playersReady.length === 2) {
+                room.started = true;
                 room.turn = room.players[0];
-                io.to(roomName).emit('startGame', { turn: room.turn });
+                room.hitCounts = {};
+                room.ships = {};
+
+                room.players.forEach((playerId) => {
+                    room.ships[playerId] = generateShips();
+                    room.hitCounts[playerId] = 0;
+                });
+
+                room.players.forEach((playerId) => {
+                    io.to(playerId).emit('startGame', {
+                        room: roomName,
+                        turn: room.turn,
+                        myShips: room.ships[playerId],
+                    });
+                });
             }
         });
 
-        socket.on('attack', ({ roomName, row, col }) => {
+        socket.on('attack', ({ roomName, position, row, col }) => {
             const room = rooms[roomName];
-            if (!room || room.turn !== socket.id) return;
-            room.turn = room.players.find((id) => id !== socket.id) || null;
-            socket.to(roomName).emit('attackKorece', { row, col });
-            io.to(roomName).emit('porerJon', { nextTurn: room.turn });
+            if (!room || room.gameOver || !room.started || room.turn !== socket.id) return;
+
+            const parsedPosition = typeof position === 'number'
+                ? position
+                : (typeof row === 'number' && typeof col === 'number' ? row * 10 + col : null);
+
+            if (parsedPosition === null || parsedPosition < 0 || parsedPosition > 99) return;
+
+            const defenderId = room.players.find((playerId) => playerId !== socket.id);
+            if (!defenderId) return;
+
+            const defenderShips = room.ships[defenderId] || [];
+            const isHit = defenderShips.includes(parsedPosition);
+            room.hitCounts[defenderId] = (room.hitCounts[defenderId] || 0) + (isHit ? 1 : 0);
+            room.turn = defenderId;
+
+            io.to(roomName).emit('attackResult', {
+                room: roomName,
+                position: parsedPosition,
+                result: isHit ? 'hit' : 'miss',
+                attackerId: socket.id,
+                defenderId,
+                turn: room.turn,
+            });
+
+            if (room.hitCounts[defenderId] >= 5) {
+                room.gameOver = true;
+                io.to(roomName).emit('gameOver', {
+                    room: roomName,
+                    winnerId: socket.id,
+                });
+                delete rooms[roomName];
+            }
         });
 
         socket.on('disconnect', () => {
-            const queueIndex = queue.indexOf(socket.id);
-            if (queueIndex !== -1) {
-                queue.splice(queueIndex, 1);
-            }
+            removeFromQueue(socket.id);
 
-            Object.keys(rooms).forEach((roomName) => {
-                if (rooms[roomName].players.includes(socket.id)) {
-                    io.to(roomName).emit('opponentDisconnected', 'Opponent left the game');
-                    delete rooms[roomName];
-                }
-            });
+            const roomName = socket.data?.roomName;
+            if (!roomName) return;
+
+            const room = rooms[roomName];
+            if (!room) return;
+
+            room.players = room.players.filter((playerId) => playerId !== socket.id);
+
+            if (room.players.length === 0) {
+                delete rooms[roomName];
+            } else {
+                io.to(room.players[0]).emit('opponentDisconnected', { room: roomName });
+                delete rooms[roomName];
+            }
         });
     });
 };
